@@ -4,7 +4,7 @@ var Schema = mongoose.Schema;
 mongoose.connect(process.env.DB);
 
 // Movie schema
-var MovieSchema = new mongoose.Schema({
+const MovieSchema = new mongoose.Schema({
   title: { type: String, required: true, index: true },
   releaseDate: { type: Number, min: [1900, 'Must be greater than 1899'], max: [2100, 'Must be less than 2100']},
   genre: {
@@ -17,6 +17,8 @@ var MovieSchema = new mongoose.Schema({
     actorName: String,
     characterName: String,
   }],
+  imageUrl: String,
+  // rest of your fields
 });
 
 // return the model

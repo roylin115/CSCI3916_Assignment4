@@ -81,8 +81,9 @@ function getJSONObjectForMovieRequirement(req) {
 }
 
 router.post('/signup', function(req, res) {
+  console.log("BODY:", req.body);
     if (!req.body.username || !req.body.password) {
-        res.json({success: false, msg: 'Please include both username and password to signup.'})
+        return res.json({success: false, msg: 'Please include both username and password to signup.'});
     } else {
         var user = new User();
         user.name = req.body.name;
@@ -91,13 +92,15 @@ router.post('/signup', function(req, res) {
 
         user.save(function(err){
             if (err) {
+                console.log("Error saving user:", err);
+
                 if (err.code == 11000)
                     return res.json({ success: false, message: 'A user with that username already exists.'});
                 else
                     return res.json(err);
             }
 
-            res.json({success: true, msg: 'Successfully created new user.'})
+            return res.json({success: true, msg: 'Successfully created new user.'})
         });
     }
 });
@@ -135,7 +138,46 @@ router.post('/signin', function (req, res) {
 router.route('/movies')
     .get(authJwtController.isAuthenticated, async (req, res) => {
       try {
-        const movies = await Movie.find(); // Use await with Movie.find()
+        if(req.query.reviews === 'true') {
+          const movies = await Movie.aggregate([
+            {
+              $lookup: {
+                from: 'reviews',
+                localField: '_id',
+                foreignField: 'movieId',
+                as: 'movieReviews'
+              }
+            },
+            {
+              $addFields: {
+                avgRating: { $avg: '$movieReviews.rating' }
+              }
+            },
+            {
+              $sort: { avgRating: -1 }
+            }
+          ]);
+
+          return res.json(movies);
+        }
+        const movies = await Movie.aggregate([
+          {
+            $lookup: {
+              from: 'reviews',
+              localField: '_id',
+              foreignField: 'movieId',
+              as: 'movieReviews'
+            }
+          },
+          {
+            $addFields: {
+              avgRating: { $avg: '$movieReviews.rating' }
+            }
+          },
+          {
+            $sort: { avgRating: -1 }
+          }
+        ]);
         res.json(movies);
       } catch (err) {
         res.status(500).json({ success: false, message: 'Something went wrong. Please try again later.' }); // 500 Internal Server Error
@@ -174,8 +216,13 @@ router.route('/movies/:id')
                         from: 'reviews',
                         localField: '_id',
                         foreignField: 'movieId',
-                        as: 'reviews'
-                }
+                        as: 'movieReviews'
+                    }
+                },
+                {
+                    $addFields: {
+                        avgRating: { $avg: '$movieReviews.rating' }
+                    }
                 }
             ]);
 
@@ -228,7 +275,7 @@ router.route('/movies/:id')
   });
 
 
-router.get('/reviews', async (req, res) => {
+router.get('/reviews', authJwtController.isAuthenticated, async (req, res) => {
   try {
     const query = req.query.movieId ? { movieId: req.query.movieId } : {};
     const reviews = await Review.find(query);
@@ -241,7 +288,8 @@ router.get('/reviews', async (req, res) => {
 
 router.post('/reviews', authJwtController.isAuthenticated, async (req, res) => {
   try {
-    const { movieId, username, review, rating } = req.body;
+    const { movieId, review, rating } = req.body;
+    const username = req.user.username;
 
     // Validate input
     if (!movieId || !username || !review || rating == null) {
@@ -283,6 +331,27 @@ router.post('/reviews', authJwtController.isAuthenticated, async (req, res) => {
   }
 });
 
+router.post('/search', authJwtController.isAuthenticated, async (req, res) => {
+  try {
+    const {query} = req.body;
+
+    if (!query) {
+      return res.status(400).json({ message: 'Missing search query' });
+    }
+
+    const movies = await Movie.find({
+      $or: [
+        { title: { $regex: query, $options: 'i' } },
+        { "actors.actorName": { $regex: query, $options: 'i' } }
+      ]
+    });
+
+    res.json(movies);
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error searching movies' });
+  }
+  
+});
 
 app.use('/', router);
 app.listen(process.env.PORT || 8080);
